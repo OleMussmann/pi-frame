@@ -1,0 +1,14 @@
+{
+  "name": "pi-frame",
+  "version": "0.1.0",
+  "description": "Decorates the Pi editor input area with a styled box or bar, plus live stats",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./frame.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "@earendil-works/pi-ai": "*"
+  }
+}
