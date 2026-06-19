@@ -8,6 +8,31 @@ Decorates the Pi editor input area with a styled box or bar, plus live stats: mo
 pi -e ./frame.ts
 ```
 
+## Extension Dependencies
+
+### Plan Mode (required for `mode` stat)
+
+The `mode` stat (`plan` / `exec`) depends on a **plan-mode extension** being installed. pi-frame detects mode by checking whether `edit` and `write` tools are disabled — this only happens when a plan-mode extension calls `pi.setActiveTools()` to restrict the tool set.
+
+**Without a plan-mode extension:**
+- The `mode` stat always displays `exec` (accent color)
+- Never shows `plan` (warning color)
+- All other stats work normally
+
+**With a plan-mode extension:**
+- `mode` toggles between `plan` (warning) and `exec` (accent)
+- Reflects actual tool availability
+
+Recommended: [plan-mode-default](https://github.com/OleMussmann/pi-extension-plan-mode-default) — starts in plan mode by default, `/plan` and `/exec` to switch.
+
+Install alongside pi-frame:
+
+```bash
+pi -e ./frame.ts -e /path/to/pi-extension-plan-mode-default/index.ts
+```
+
+Or place both in `~/.pi/agent/extensions/` for auto-discovery.
+
 ## Persistence
 
 Mode (box/bar) and visible stats persist across session reloads. State is stored in the session file via `pi.appendEntry()` and restored on `session_start` and `session_tree` events.
@@ -54,7 +79,7 @@ Ten stat groups, each togglable per-session:
 |---|---|
 | `model` | Model ID + provider (top-left) |
 | `session` | Session name or first user message summary (top-right) |
-| `mode` | `plan` or `exec` (bottom-left) |
+| `mode` | `plan` or `exec` (bottom-left, requires plan-mode extension) |
 | `thinking` | Thinking level / "off" (bottom-left) |
 | `tps` | Tokens per second (bottom-right) |
 | `cost` | Cumulative session cost in $ (bottom-right) |
@@ -64,6 +89,8 @@ Ten stat groups, each togglable per-session:
 | `version` | `pi v0.79.1` (footer right) |
 
 All colors come from the active theme. Mode uses accent/warning; context bar uses success → warning → error thresholds (50% / 80%).
+
+> **Note:** The `mode` stat requires a plan-mode extension (see [Extension Dependencies](#extension-dependencies)). Without one, it always shows `exec`.
 
 ### Toggle visibility
 
