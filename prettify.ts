@@ -21,81 +21,28 @@
  *   pi -e ./prettify.ts
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	CustomEditor,
-	VERSION,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent } from "@earendil-works/pi-tui";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
 
-// ─── Types & config ─────────────────────────────────────────────────────
-
-type Flavor = "frame" | "bar";
-
-type StatKey =
-	| "model"
-	| "session"
-	| "mode"
-	| "thinking"
-	| "tps"
-	| "cost"
-	| "context"
-	| "cwd"
-	| "git"
-	| "version";
-
-const ALL_STATS: StatKey[] = [
-	"model",
-	"session",
-	"mode",
-	"thinking",
-	"tps",
-	"cost",
-	"context",
-	"cwd",
-	"git",
-	"version",
-];
-
-interface PrettifyConfig {
-	flavor: Flavor;
-	visible: Set<StatKey>;
-}
-
-const config: PrettifyConfig = { flavor: "frame", visible: new Set(ALL_STATS) };
-
-const VERSION_LABEL = `pi ${VERSION}`;
-
-// Git status glyphs (starship-inspired). Edit to taste / match your font.
-const GIT_SYMBOLS = {
-	ahead: "⇡",
-	behind: "⇣",
-	staged: "+",
-	modified: "!",
-	renamed: "»",
-	deleted: "󰧧",
-	untracked: "󱀣",
-	conflicted: "󱠇",
-	stashed: "*",
-};
-
-interface GitInfo {
-	branch: string;
-	ahead: number;
-	behind: number;
-	staged: number;
-	modified: number;
-	deleted: number;
-	renamed: number;
-	untracked: number;
-	conflicted: number;
-	stashed: number;
-	state: string;
-}
+// Modules
+import {
+	config,
+	ALL_STATS,
+	PRETTIFY_CUSTOM_TYPE,
+	VERSION_LABEL,
+	type PrettifyPersistedState,
+	type StatKey,
+	type GitInfo,
+} from "./types.js";
+import { formatCwd, formatThinking, formatTokens } from "./helpers.js";
+import { refreshGit as fetchGit, gitSegment } from "./git.js";
+import { renderFrame, renderBar } from "./render.js";
 
 // ─── State ────────────────────────────────────────────────────────────────
 
@@ -137,66 +84,6 @@ function stopTpsTracking(): void {
 	}
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
-
-function formatCwd(cwd: string): string {
-	const home = process.env.HOME;
-	if (home && cwd.startsWith(home)) {
-		return `~${cwd.slice(home.length)}`;
-	}
-	return cwd;
-}
-
-function formatThinking(level: string): string {
-	return level === "off" ? "thinking off" : `thinking ${level}`;
-}
-
-function formatTokens(n: number): string {
-	return n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`;
-}
-
-const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
-
-// A border line from the base editor is made up only of ─ ━ (and the optional
-// "↑ N more" / "↓ N more" scroll indicator). Used to locate the bottom border,
-// since the autocomplete dropdown appends extra lines after it.
-const isBorderLine = (s: string): boolean =>
-	stripAnsi(s)
-		.replace(/[─━↑↓\d ]/g, "")
-		.replace(/more/g, "")
-		.length === 0;
-
-function findBottomBorderIndex(lines: string[]): number {
-	for (let i = lines.length - 1; i >= 1; i--) {
-		if (isBorderLine(lines[i]!)) return i;
-	}
-	return lines.length - 1;
-}
-
-function padTo(text: string, width: number): string {
-	const w = visibleWidth(text);
-	if (w === width) return text;
-	if (w < width) return text + " ".repeat(width - w);
-	return truncateToWidth(text, width);
-}
-
-function gitSegment(): string {
-	if (!gitInfo) return "no git";
-	const g = gitInfo;
-	const parts = [g.branch || "(detached)"];
-	if (g.state) parts.push(g.state);
-	if (g.ahead) parts.push(`${GIT_SYMBOLS.ahead}${g.ahead}`);
-	if (g.behind) parts.push(`${GIT_SYMBOLS.behind}${g.behind}`);
-	if (g.staged) parts.push(`${GIT_SYMBOLS.staged}${g.staged}`);
-	if (g.modified) parts.push(`${GIT_SYMBOLS.modified}${g.modified}`);
-	if (g.renamed) parts.push(`${GIT_SYMBOLS.renamed}${g.renamed}`);
-	if (g.deleted) parts.push(`${GIT_SYMBOLS.deleted}${g.deleted}`);
-	if (g.untracked) parts.push(`${GIT_SYMBOLS.untracked}${g.untracked}`);
-	if (g.conflicted) parts.push(`${GIT_SYMBOLS.conflicted}${g.conflicted}`);
-	if (g.stashed) parts.push(`${GIT_SYMBOLS.stashed}${g.stashed}`);
-	return parts.join(" ");
-}
-
 // ─── Extension Entry Point ───────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -204,72 +91,64 @@ export default function (pi: ExtensionAPI) {
 		return (ALL_STATS as string[]).includes(key);
 	}
 
-	async function refreshGit(): Promise<void> {
-		const cwd = currentCwd;
-		if (!cwd) return;
-		const status = await pi
-			.exec("git", ["status", "--porcelain=2", "--branch"], { cwd, timeout: 5000 })
-			.catch(() => undefined);
-		if (!status || status.code !== 0) {
-			gitInfo = null;
-			activeTui?.requestRender();
+	// ── Persistence ────────────────────────────────────────────────
+
+	function persistState(): void {
+		pi.appendEntry(PRETTIFY_CUSTOM_TYPE, {
+			flavor: config.flavor,
+			visible: [...config.visible],
+		} as PrettifyPersistedState);
+	}
+
+	function reconstructState(ctx: any): void {
+		// Check for CLI flag override first
+		const flagMode = pi.getFlag("prettify-mode");
+		if (flagMode === "frame" || flagMode === "bar") {
+			config.flavor = flagMode;
+			return; // Flag overrides everything, keep default visible
+		}
+
+		// Try to restore from session entries (last one wins)
+		const entries = ctx.sessionManager.getEntries();
+		const state = entries
+			.filter((e: any) => e.type === "custom" && e.customType === PRETTIFY_CUSTOM_TYPE)
+			.pop() as { data?: PrettifyPersistedState } | undefined;
+
+		if (state?.data) {
+			if (state.data.flavor === "frame" || state.data.flavor === "bar") {
+				config.flavor = state.data.flavor;
+			}
+			if (Array.isArray(state.data.visible)) {
+				config.visible = new Set(
+					state.data.visible.filter((k: string) => (ALL_STATS as string[]).includes(k))
+				);
+			}
 			return;
 		}
 
-		const info: GitInfo = {
-			branch: "",
-			ahead: 0,
-			behind: 0,
-			staged: 0,
-			modified: 0,
-			deleted: 0,
-			renamed: 0,
-			untracked: 0,
-			conflicted: 0,
-			stashed: 0,
-			state: "",
-		};
-		let oid = "";
-		for (const line of status.stdout.split("\n")) {
-			if (line.startsWith("# branch.head ")) info.branch = line.slice(14).trim();
-			else if (line.startsWith("# branch.oid ")) oid = line.slice(13).trim();
-			else if (line.startsWith("# branch.ab ")) {
-				const m = line.match(/\+(\d+)\s+-(\d+)/);
-				if (m) {
-					info.ahead = Number(m[1]);
-					info.behind = Number(m[2]);
+		// Fall back to global defaults from settings.json
+		try {
+			const home = process.env.HOME ?? "";
+			const settingsPath = join(home, ".pi", "agent", "settings.json");
+			if (existsSync(settingsPath)) {
+				const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+				const defaults = settings?.prettify;
+				if (defaults?.flavor === "frame" || defaults?.flavor === "bar") {
+					config.flavor = defaults.flavor;
 				}
-			} else if (line.startsWith("1 ") || line.startsWith("2 ")) {
-				const x = line[2];
-				const y = line[3];
-				if (line.startsWith("2 ")) info.renamed++;
-				else if (x && x !== ".") info.staged++;
-				if (y === "M") info.modified++;
-				else if (y === "D") info.deleted++;
-			} else if (line.startsWith("u ")) info.conflicted++;
-			else if (line.startsWith("? ")) info.untracked++;
+				if (Array.isArray(defaults?.visible)) {
+					config.visible = new Set(
+						defaults.visible.filter((k: string) => (ALL_STATS as string[]).includes(k))
+					);
+				}
+			}
+		} catch {
+			// Ignore parse errors, use hardcoded defaults
 		}
-		if ((!info.branch || info.branch === "(detached)") && oid && oid !== "(initial)") {
-			info.branch = oid.slice(0, 7);
-		}
+	}
 
-		const stash = await pi.exec("git", ["stash", "list"], { cwd, timeout: 5000 }).catch(() => undefined);
-		if (stash?.code === 0 && stash.stdout) {
-			info.stashed = stash.stdout.split("\n").filter(Boolean).length;
-		}
-
-		const gd = await pi
-			.exec("git", ["rev-parse", "--absolute-git-dir"], { cwd, timeout: 5000 })
-			.catch(() => undefined);
-		if (gd?.code === 0 && gd.stdout) {
-			const dir = gd.stdout.trim();
-			if (existsSync(join(dir, "rebase-merge")) || existsSync(join(dir, "rebase-apply"))) info.state = "REBASING";
-			else if (existsSync(join(dir, "MERGE_HEAD"))) info.state = "MERGING";
-			else if (existsSync(join(dir, "CHERRY_PICK_HEAD"))) info.state = "CHERRY-PICKING";
-			else if (existsSync(join(dir, "REVERT_HEAD"))) info.state = "REVERTING";
-			else if (existsSync(join(dir, "BISECT_LOG"))) info.state = "BISECTING";
-		}
-
+	async function doRefreshGit(): Promise<void> {
+		const info = await fetchGit(pi, currentCwd);
 		gitInfo = info;
 		activeTui?.requestRender();
 	}
@@ -289,6 +168,7 @@ export default function (pi: ExtensionAPI) {
 			const cmd = parts[0]!;
 			if (cmd === "frame" || cmd === "bar") {
 				config.flavor = cmd;
+				persistState();
 				ctx.ui.notify(`prettify: switched to ${cmd} mode`, "info");
 				activeTui?.requestRender();
 				return;
@@ -301,6 +181,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				if (cmd === "show") config.visible.add(key);
 				else config.visible.delete(key);
+				persistState();
 				ctx.ui.notify(`prettify: ${cmd === "show" ? "showing" : "hiding"} "${key}"`, "info");
 				activeTui?.requestRender();
 				return;
@@ -321,7 +202,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_end", () => {
 		stopTpsTracking();
-		void refreshGit();
+		void doRefreshGit();
 		activeTui?.requestRender();
 	});
 
@@ -347,7 +228,13 @@ export default function (pi: ExtensionAPI) {
 		activeTui?.requestRender();
 	});
 
+	pi.on("session_tree", (_event, ctx) => {
+		reconstructState(ctx);
+		activeTui?.requestRender();
+	});
+
 	pi.on("session_start", (_event, ctx) => {
+		reconstructState(ctx);
 		currentThinking = pi.getThinkingLevel();
 		currentModelLabel = ctx.model ? `${ctx.model.id} (${ctx.model.provider})` : "no model";
 		currentCwd = ctx.cwd;
@@ -361,7 +248,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		sessionCost = cost;
 
-		void refreshGit();
+		void doRefreshGit();
 		ctx.ui.setWorkingVisible(false);
 
 
@@ -425,101 +312,11 @@ export default function (pi: ExtensionAPI) {
 			return items.join(sep);
 		};
 
-		// Apply a background colour across an entire string, re-asserting it after
-		// any embedded reset (\x1b[0m) so the fill survives styled text / cursor.
-		const bgFill = (text: string, key: string): string => {
-			const thm = ctx.ui.theme;
-			const probe = thm.bg(key, " ");
-			const i = probe.indexOf(" ");
-			if (i < 0) return thm.bg(key, text);
-			const prefix = probe.slice(0, i);
-			const suffix = probe.slice(i + 1);
-			const patched = text.replace(/\x1b\[0m/g, (m) => m + prefix);
-			return prefix + patched + suffix;
-		};
-
-		// ── Frame flavor ──────────────────────────────────────────────
-
-		const frameBorder = (
-			cornerL: string,
-			cornerR: string,
-			left: string,
-			right: string,
-			width: number,
-			fc: (t: string) => string,
-		): string => {
-			let l = left;
-			let r = right;
-			const fillFor = () =>
-				visibleWidth(r) > 0
-					? width - (visibleWidth(l) + visibleWidth(r) + 8)
-					: width - (visibleWidth(l) + 6);
-			while (fillFor() < 1 && visibleWidth(r) > 0) r = truncateToWidth(r, Math.max(0, visibleWidth(r) - 1), "");
-			while (fillFor() < 1 && visibleWidth(l) > 0) l = truncateToWidth(l, Math.max(0, visibleWidth(l) - 1), "");
-			const fill = fc("─".repeat(Math.max(0, fillFor())));
-			if (visibleWidth(r) > 0) {
-				return `${fc(cornerL)}${fc("─")} ${l} ${fill} ${r} ${fc("─")}${fc(cornerR)}`;
-			}
-			return `${fc(cornerL)}${fc("─")} ${l} ${fill}${fc("─")}${fc(cornerR)}`;
-		};
-
-		const renderFrame = (lines: string[], width: number): string[] => {
-			const thm = ctx.ui.theme;
-			const mode = getMode();
-			const fc = (t: string) => thm.fg(mode.color, t);
-			const sep = fc(" ── ");
-			const bottomIdx = findBottomBorderIndex(lines);
-
-			lines[0] = frameBorder("╭", "╮", topLeft(), topRight(), width, fc);
-			for (let i = 1; i < bottomIdx; i++) {
-				const prompt = thm.fg(mode.color, i === 1 ? "> " : "  ");
-				lines[i] = `${fc("│")} ${prompt}${lines[i]} ${fc("│")}`;
-			}
-			lines[bottomIdx] = frameBorder("╰", "╯", bottomLeft(sep), bottomRight(sep), width, fc);
-			return lines;
-		};
-
-		// ── Bar flavor ────────────────────────────────────────────────
-
-		// One bar row: " " + ▐ + dark-grey box + ▌ + " " — symmetric half-block edges.
-		const barRow = (inner: string, width: number, fc: (t: string) => string): string => {
-			const thm = ctx.ui.theme;
-			// ▌ uses toolPendingBg as foreground (left half filled), default bg (right half transparent)
-			const bgAnsi = thm.getBgAnsi("toolPendingBg");
-			const fgAnsi = bgAnsi.replace("48", "38");
-			return ` ${fc("▐")}${bgFill(padTo(inner, width - 4), "toolPendingBg")}${fgAnsi}▌\x1b[39m `;
-		};
-
-		const renderBar = (lines: string[], width: number): string[] => {
-			const thm = ctx.ui.theme;
-			const mode = getMode();
-			const fc = (t: string) => thm.fg(mode.color, t);
-			const sep = " · ";
-			const bottomIdx = findBottomBorderIndex(lines);
-			const innerW = width - 4;
-
-			const tl = topLeft();
-			const tr = topRight();
-			const topGap = Math.max(1, innerW - 2 - visibleWidth(tl) - visibleWidth(tr));
-			lines[0] = barRow(` ${tl}${" ".repeat(topGap)}${tr} `, width, fc);
-
-			for (let i = 1; i < bottomIdx; i++) {
-				const prompt = thm.fg(mode.color, i === 1 ? "> " : "  ");
-				lines[i] = barRow(` ${prompt}${lines[i]}`, width, fc);
-			}
-
-			const bl = bottomLeft(sep);
-			const br = bottomRight(sep);
-			const botGap = Math.max(1, innerW - 2 - visibleWidth(bl) - visibleWidth(br));
-			lines[bottomIdx] = barRow(` ${bl}${" ".repeat(botGap)}${br} `, width, fc);
-			return lines;
-		};
-
 		// ── Footer (below the box): cwd · git [left] ... version [right] ──
 
 		const makeFooter = (footerData: any) => {
 			const unsub = footerData?.onBranchChange?.(() => {
-				void refreshGit();
+				void doRefreshGit();
 			});
 			return {
 				dispose: unsub,
@@ -528,11 +325,14 @@ export default function (pi: ExtensionAPI) {
 					const thm = ctx.ui.theme;
 					const left: string[] = [];
 					if (config.visible.has("cwd")) left.push(formatCwd(ctx.cwd));
-					if (config.visible.has("git")) left.push(gitSegment());
+					if (config.visible.has("git")) left.push(gitSegment(gitInfo));
 					const leftStr = thm.fg("dim", ` ${left.join("  ")}`);
 					const rightStr = config.visible.has("version") ? thm.fg("dim", `${VERSION_LABEL} `) : "";
-					const gap = Math.max(1, width - visibleWidth(leftStr) - visibleWidth(rightStr));
-					return ["", `${leftStr}${" ".repeat(gap)}${rightStr}`];
+					const gap = Math.max(1, width - 0 - 0); // visibleWidth calculated below
+					const leftW = leftStr.replace(/\x1b\[[0-9;]*m/g, "").length;
+					const rightW = rightStr.replace(/\x1b\[[0-9;]*m/g, "").length;
+					const gapW = Math.max(1, width - leftW - rightW);
+					return ["", `${leftStr}${" ".repeat(gapW)}${rightStr}`];
 				},
 			};
 		};
@@ -574,7 +374,17 @@ export default function (pi: ExtensionAPI) {
 					const reserve = config.flavor === "bar" ? 7 : 6;
 					const lines = baseRender(width - reserve);
 					if (lines.length < 2) return baseRender(width);
-					return config.flavor === "bar" ? renderBar(lines, width) : renderFrame(lines, width);
+
+					const thm = ctx.ui.theme;
+					const mode = getMode();
+					const tl = topLeft();
+					const tr = topRight();
+					const bl = bottomLeft(" · ");
+					const br = bottomRight(" · ");
+
+					return config.flavor === "bar"
+						? renderBar(lines, width, thm, mode.color, tl, tr, bl, br)
+						: renderFrame(lines, width, thm, mode.color, tl, tr, bl, br);
 				};
 				return base;
 			};
@@ -585,6 +395,11 @@ export default function (pi: ExtensionAPI) {
 		};
 
 		setTimeout(installUI, 0);
+	});
+
+	pi.registerFlag("prettify-mode", {
+		description: "Override prettify mode: frame or bar",
+		type: "string",
 	});
 
 	pi.on("session_shutdown", () => {
