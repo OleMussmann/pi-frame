@@ -5,7 +5,7 @@ Decorates the Pi editor input area with a styled box or bar, plus live stats: mo
 ## Quick Start
 
 ```bash
-pi -e ./prettify.ts
+pi -e ./frame.ts
 ```
 
 ## Persistence
@@ -43,7 +43,7 @@ Two visual styles. Switch with `/frame`:
 Default is `box`. Optionally override with CLI flag for one session:
 
 ```bash
-pi -e ./prettify.ts --frame-mode bar
+pi -e ./frame.ts --frame-mode bar
 ```
 
 ## Stats
@@ -126,7 +126,7 @@ Modular structure:
 
 | Module | Purpose |
 |---|---|
-| `prettify.ts` | Entry point, command registration, event handlers |
+| `frame.ts` | Entry point, command registration, event handlers |
 | `types.ts` | Types, constants, config |
 | `git.ts` | Git status parsing and display |
 | `helpers.ts` | String formatting, ANSI utilities |
@@ -139,7 +139,7 @@ Marked with `__piFrame` to prevent double-wrapping across `/reload`.
 ## Load Path
 
 ```typescript
-// pi -e ./prettify.ts
+// pi -e ./frame.ts
 export default function (pi: ExtensionAPI) { ... }
 ```
 

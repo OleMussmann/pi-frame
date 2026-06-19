@@ -18,7 +18,7 @@
  * from the active theme.
  *
  * Load:
- *   pi -e ./prettify.ts
+ *   pi -e ./frame.ts
  */
 
 import { existsSync, readFileSync } from "node:fs";
