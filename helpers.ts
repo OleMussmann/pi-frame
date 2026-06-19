@@ -1,5 +1,5 @@
 /**
- * Prettify — Utility functions.
+ * Pi Frame — Utility functions.
  */
 
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";

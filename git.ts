@@ -1,5 +1,5 @@
 /**
- * Prettify — Git status parsing and display.
+ * Pi Frame — Git status parsing and display.
  */
 
 import { existsSync } from "node:fs";

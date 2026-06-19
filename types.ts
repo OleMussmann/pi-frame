@@ -1,12 +1,12 @@
 /**
- * Prettify — Types and constants.
+ * Pi Frame — Types and constants.
  */
 
 import { VERSION } from "@earendil-works/pi-coding-agent";
 
 // ─── Flavors & Stats ─────────────────────────────────────────────────────
 
-export type Flavor = "frame" | "bar";
+export type Flavor = "box" | "bar";
 
 export type StatKey =
 	| "model"
@@ -35,18 +35,18 @@ export const ALL_STATS: StatKey[] = [
 
 // ─── Config ──────────────────────────────────────────────────────────────
 
-export interface PrettifyConfig {
+export interface PiFrameConfig {
 	flavor: Flavor;
 	visible: Set<StatKey>;
 }
 
-export const config: PrettifyConfig = { flavor: "frame", visible: new Set(ALL_STATS) };
+export const config: PiFrameConfig = { flavor: "box", visible: new Set(ALL_STATS) };
 
 // ─── Persistence ─────────────────────────────────────────────────────────
 
-export const PRETTIFY_CUSTOM_TYPE = "prettify-state";
+export const CUSTOM_TYPE = "pi-frame-state";
 
-export interface PrettifyPersistedState {
+export interface PiFramePersistedState {
 	flavor: Flavor;
 	visible: StatKey[];
 }

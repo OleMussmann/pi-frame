@@ -1,6 +1,6 @@
-# Prettify — Pi Coding Agent Input Field Extension
+# Pi Frame — Pi Coding Agent Input Field Extension
 
-Decorates the Pi editor input area with a styled frame or bar, plus live stats: model, session summary, mode, thinking level, tokens/sec, cost, context window usage, cwd, git status, and version.
+Decorates the Pi editor input area with a styled box or bar, plus live stats: model, session summary, mode, thinking level, tokens/sec, cost, context window usage, cwd, git status, and version.
 
 ## Quick Start
 
@@ -10,13 +10,13 @@ pi -e ./prettify.ts
 
 ## Persistence
 
-Mode (frame/bar) and visible stats persist across session reloads. State is stored in the session file via `pi.appendEntry()` and restored on `session_start` and `session_tree` events.
+Mode (box/bar) and visible stats persist across session reloads. State is stored in the session file via `pi.appendEntry()` and restored on `session_start` and `session_tree` events.
 
 On new sessions, state is restored in this order:
-1. CLI flag `--prettify-mode` (if provided)
+1. CLI flag `--frame-mode` (if provided)
 2. Persisted session state (from previous session)
-3. Global defaults from `~/.pi/agent/settings.json` under `prettify` key
-4. Hardcoded defaults (frame mode, all stats visible)
+3. Global defaults from `~/.pi/agent/settings.json` under `pi-frame` key
+4. Hardcoded defaults (box mode, all stats visible)
 
 ### Global Defaults
 
@@ -24,7 +24,7 @@ Set default preferences in `~/.pi/agent/settings.json`:
 
 ```json
 {
-  "prettify": {
+  "pi-frame": {
     "flavor": "bar",
     "visible": ["model", "mode", "context", "cwd", "git"]
   }
@@ -33,17 +33,17 @@ Set default preferences in `~/.pi/agent/settings.json`:
 
 ## Flavors
 
-Two visual styles. Switch with `/prettify`:
+Two visual styles. Switch with `/frame`:
 
 | Command | Result |
 |---|---|
-| `/prettify frame` | Full box-drawing frame (╭─╮╰─╯) |
-| `/prettify bar` | Left thick block bar (█) |
+| `/frame box` | Full box-drawing frame (╭─╮╰─╯) |
+| `/frame bar` | Left thick block bar (█) |
 
-Default is `frame`. Optionally override with CLI flag for one session:
+Default is `box`. Optionally override with CLI flag for one session:
 
 ```bash
-pi -e ./prettify.ts --prettify-mode bar
+pi -e ./prettify.ts --frame-mode bar
 ```
 
 ## Stats
@@ -68,17 +68,17 @@ All colors come from the active theme. Mode uses accent/warning; context bar use
 ### Toggle visibility
 
 ```
-/prettify show <stat>
-/prettify hide <stat>
+/frame show <stat>
+/frame hide <stat>
 ```
 
 Visibility persists across reloads. List current state with no arguments:
 
 ```
-/prettify
+/frame
 ```
 
-Output example: `prettify: frame mode | visible: model, session, mode, thinking, tps, cost, context, cwd, git, version`
+Output example: `frame: box mode | visible: model, session, mode, thinking, tps, cost, context, cwd, git, version`
 
 ## Layout
 
@@ -92,7 +92,7 @@ Both flavors share the same stat positions:
   ~/code/project  main ⇡2 +3 !1 ~1  pi v0.79.1
 ```
 
-Frame: box-drawing characters with mode-colored borders and gutter.
+Box: box-drawing characters with mode-colored borders and gutter.
 Bar: single █ column on left, dark-grey background fill across the rest.
 
 ## Git Status
@@ -118,7 +118,7 @@ Auto-refreshes on session start, agent end, and branch change.
 
 | Flag | Description |
 |---|---|
-| `--prettify-mode <frame\|bar>` | Override mode for this session only (does not persist) |
+| `--frame-mode <box\|bar>` | Override mode for this session only (does not persist) |
 
 ## Architecture
 
@@ -130,11 +130,11 @@ Modular structure:
 | `types.ts` | Types, constants, config |
 | `git.ts` | Git status parsing and display |
 | `helpers.ts` | String formatting, ANSI utilities |
-| `render.ts` | Frame and bar rendering |
+| `render.ts` | Box and bar rendering |
 
-Wraps (doesn't replace) whatever editor component is installed at session start. This means it composes with other extensions like `raw-paste` — each extension's editor gets decorated by prettify rather than fighting for sole control.
+Wraps (doesn't replace) whatever editor component is installed at session start. This means it composes with other extensions like `raw-paste` — each extension's editor gets decorated by pi-frame rather than fighting for sole control.
 
-Marked with `__prettify` to prevent double-wrapping across `/reload`.
+Marked with `__piFrame` to prevent double-wrapping across `/reload`.
 
 ## Load Path
 

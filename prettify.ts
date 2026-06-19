@@ -1,9 +1,9 @@
 /**
- * Prettify — Pi coding agent input field extension.
+ * Pi Frame — Pi coding agent input field extension.
  *
- * Two flavors: "frame" (full box-drawing frame) and "bar" (left thick bar).
- * Switch via `/prettify frame` or `/prettify bar`.
- * Toggle stats via `/prettify show <stat>` or `/prettify hide <stat>`.
+ * Two flavors: "box" (full box-drawing frame) and "bar" (left thick bar).
+ * Switch via `/frame box` or `/frame bar`.
+ * Toggle stats via `/frame show <stat>` or `/frame hide <stat>`.
  *
  * Available stats: model, session, mode, thinking, tps, cost, context, cwd, git, version
  *
@@ -13,7 +13,7 @@
  *   bottom → mode · thinking                [left]   tps · cost · context [right]
  *   footer → cwd · git                      [left]   version [right]   (below the box)
  *
- * The frame/bar is coloured by mode (accent for exec, warning for plan); the
+ * The box/bar is coloured by mode (accent for exec, warning for plan); the
  * context bar is coloured by fill (success → warning → error). All colours come
  * from the active theme.
  *
@@ -34,9 +34,9 @@ import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import {
 	config,
 	ALL_STATS,
-	PRETTIFY_CUSTOM_TYPE,
+	CUSTOM_TYPE,
 	VERSION_LABEL,
-	type PrettifyPersistedState,
+	type PiFramePersistedState,
 	type StatKey,
 	type GitInfo,
 } from "./types.js";
@@ -94,16 +94,16 @@ export default function (pi: ExtensionAPI) {
 	// ── Persistence ────────────────────────────────────────────────
 
 	function persistState(): void {
-		pi.appendEntry(PRETTIFY_CUSTOM_TYPE, {
+		pi.appendEntry(CUSTOM_TYPE, {
 			flavor: config.flavor,
 			visible: [...config.visible],
-		} as PrettifyPersistedState);
+		} as PiFramePersistedState);
 	}
 
 	function reconstructState(ctx: any): void {
 		// Check for CLI flag override first
-		const flagMode = pi.getFlag("prettify-mode");
-		if (flagMode === "frame" || flagMode === "bar") {
+		const flagMode = pi.getFlag("frame-mode");
+		if (flagMode === "box" || flagMode === "bar") {
 			config.flavor = flagMode;
 			return; // Flag overrides everything, keep default visible
 		}
@@ -111,11 +111,11 @@ export default function (pi: ExtensionAPI) {
 		// Try to restore from session entries (last one wins)
 		const entries = ctx.sessionManager.getEntries();
 		const state = entries
-			.filter((e: any) => e.type === "custom" && e.customType === PRETTIFY_CUSTOM_TYPE)
-			.pop() as { data?: PrettifyPersistedState } | undefined;
+			.filter((e: any) => e.type === "custom" && e.customType === CUSTOM_TYPE)
+			.pop() as { data?: PiFramePersistedState } | undefined;
 
 		if (state?.data) {
-			if (state.data.flavor === "frame" || state.data.flavor === "bar") {
+			if (state.data.flavor === "box" || state.data.flavor === "bar") {
 				config.flavor = state.data.flavor;
 			}
 			if (Array.isArray(state.data.visible)) {
@@ -132,8 +132,8 @@ export default function (pi: ExtensionAPI) {
 			const settingsPath = join(home, ".pi", "agent", "settings.json");
 			if (existsSync(settingsPath)) {
 				const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-				const defaults = settings?.prettify;
-				if (defaults?.flavor === "frame" || defaults?.flavor === "bar") {
+				const defaults = settings?.["pi-frame"];
+				if (defaults?.flavor === "box" || defaults?.flavor === "bar") {
 					config.flavor = defaults.flavor;
 				}
 				if (Array.isArray(defaults?.visible)) {
@@ -155,39 +155,39 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Command ───────────────────────────────────────────────────────
 
-	pi.registerCommand("prettify", {
-		description: "Configure prettify. Usage: /prettify [frame|bar|show <stat>|hide <stat>]",
+	pi.registerCommand("frame", {
+		description: "Configure pi-frame. Usage: /frame [box|bar|show <stat>|hide <stat>]",
 		handler: async (args, ctx) => {
 			const parts = (args || "").trim().split(/\s+/).filter(Boolean);
 			if (parts.length === 0) {
 				const vis = [...config.visible].join(", ");
-				ctx.ui.notify(`prettify: ${config.flavor} mode | visible: ${vis}`, "info");
+				ctx.ui.notify(`frame: ${config.flavor} mode | visible: ${vis}`, "info");
 				return;
 			}
 
 			const cmd = parts[0]!;
-			if (cmd === "frame" || cmd === "bar") {
+			if (cmd === "box" || cmd === "bar") {
 				config.flavor = cmd;
 				persistState();
-				ctx.ui.notify(`prettify: switched to ${cmd} mode`, "info");
+				ctx.ui.notify(`frame: switched to ${cmd} mode`, "info");
 				activeTui?.requestRender();
 				return;
 			}
 			if ((cmd === "show" || cmd === "hide") && parts[1]) {
 				const key = parts[1];
 				if (!isValidStat(key)) {
-					ctx.ui.notify(`prettify: unknown stat "${key}"`, "warning");
+					ctx.ui.notify(`frame: unknown stat "${key}"`, "warning");
 					return;
 				}
 				if (cmd === "show") config.visible.add(key);
 				else config.visible.delete(key);
 				persistState();
-				ctx.ui.notify(`prettify: ${cmd === "show" ? "showing" : "hiding"} "${key}"`, "info");
+				ctx.ui.notify(`frame: ${cmd === "show" ? "showing" : "hiding"} "${key}"`, "info");
 				activeTui?.requestRender();
 				return;
 			}
 			ctx.ui.notify(
-				`prettify: unknown command "${cmd}". Try: frame, bar, show <stat>, hide <stat>`,
+				`frame: unknown command "${cmd}". Try: box, bar, show <stat>, hide <stat>`,
 				"warning",
 			);
 		},
@@ -328,7 +328,6 @@ export default function (pi: ExtensionAPI) {
 					if (config.visible.has("git")) left.push(gitSegment(gitInfo));
 					const leftStr = thm.fg("dim", ` ${left.join("  ")}`);
 					const rightStr = config.visible.has("version") ? thm.fg("dim", `${VERSION_LABEL} `) : "";
-					const gap = Math.max(1, width - 0 - 0); // visibleWidth calculated below
 					const leftW = leftStr.replace(/\x1b\[[0-9;]*m/g, "").length;
 					const rightW = rightStr.replace(/\x1b\[[0-9;]*m/g, "").length;
 					const gapW = Math.max(1, width - leftW - rightW);
@@ -352,7 +351,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Don't re-wrap our own wrapper (e.g. across /reload when nobody else
 			// reset the editor) — that would stack decorations.
-			if (prev && (prev as any).__prettify) return;
+			if (prev && (prev as any).__piFrame) return;
 
 			const factory = (tui: any, theme: any, keybindings: any): EditorComponent => {
 				const base: any = prev
@@ -367,8 +366,8 @@ export default function (pi: ExtensionAPI) {
 
 				const baseRender = base.render.bind(base);
 				base.render = (width: number): string[] => {
-					// Reserve columns for our frame/bar + prompt, then decorate.
-					// frame: │ + " " + "> " + text + " " + │  → text width = width - 6
+					// Reserve columns for our box/bar + prompt, then decorate.
+					// box: │ + " " + "> " + text + " " + │  → text width = width - 6
 					// bar:   " " + ▐ + "> " + text + ▐ + " "  → text width = width - 7
 					if (width < 12) return baseRender(width);
 					const reserve = config.flavor === "bar" ? 7 : 6;
@@ -382,13 +381,13 @@ export default function (pi: ExtensionAPI) {
 					const bl = bottomLeft(" · ");
 					const br = bottomRight(" · ");
 
-					return config.flavor === "bar"
+					return ["", ...(config.flavor === "bar"
 						? renderBar(lines, width, thm, mode.color, tl, tr, bl, br)
-						: renderFrame(lines, width, thm, mode.color, tl, tr, bl, br);
+						: renderFrame(lines, width, thm, mode.color, tl, tr, bl, br))];
 				};
 				return base;
 			};
-			(factory as any).__prettify = true;
+			(factory as any).__piFrame = true;
 
 			ctx.ui.setEditorComponent(factory);
 			activeTui?.requestRender();
@@ -397,8 +396,8 @@ export default function (pi: ExtensionAPI) {
 		setTimeout(installUI, 0);
 	});
 
-	pi.registerFlag("prettify-mode", {
-		description: "Override prettify mode: frame or bar",
+	pi.registerFlag("frame-mode", {
+		description: "Override pi-frame mode: box or bar",
 		type: "string",
 	});
 

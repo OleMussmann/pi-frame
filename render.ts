@@ -1,5 +1,5 @@
 /**
- * Prettify — Frame and bar rendering.
+ * Pi Frame — Box and bar rendering.
  */
 
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
