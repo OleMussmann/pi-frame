@@ -58,6 +58,7 @@ let gitInfo: GitInfo | null = null;
 let tpsTokenCount = 0;
 let tpsStartTime = 0;
 let tpsInterval: ReturnType<typeof setInterval> | undefined;
+let tpsStreaming = false;
 
 // Braille spinner
 const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -83,12 +84,16 @@ function stopSpinner(): void {
 
 function startTpsTracking(): void {
 	tpsTokenCount = 0;
-	tpsStartTime = Date.now();
+	tpsStartTime = 0;
+	tpsStreaming = false;
 	if (!tpsInterval) {
 		tpsInterval = setInterval(() => {
-			const elapsed = (Date.now() - tpsStartTime) / 1000;
-			if (elapsed > 0 && tpsTokenCount > 0) {
-				lastTps = Math.round(tpsTokenCount / elapsed);
+			// Only recalculate while streaming — frozen after message_end
+			if (tpsStreaming && tpsStartTime > 0 && tpsTokenCount > 0) {
+				const elapsed = (Date.now() - tpsStartTime) / 1000;
+				if (elapsed > 0) {
+					lastTps = Math.round(tpsTokenCount / elapsed);
+				}
 			}
 			activeTui?.requestRender();
 		}, 500);
@@ -100,9 +105,11 @@ function stopTpsTracking(): void {
 		clearInterval(tpsInterval);
 		tpsInterval = undefined;
 	}
-	const elapsed = (Date.now() - tpsStartTime) / 1000;
-	if (elapsed > 0 && tpsTokenCount > 0) {
-		lastTps = Math.round(tpsTokenCount / elapsed);
+	if (tpsStartTime > 0 && tpsTokenCount > 0) {
+		const elapsed = (Date.now() - tpsStartTime) / 1000;
+		if (elapsed > 0) {
+			lastTps = Math.round(tpsTokenCount / elapsed);
+		}
 	}
 }
 
@@ -230,13 +237,31 @@ export default function (pi: ExtensionAPI) {
 		activeTui?.requestRender();
 	});
 
-	pi.on("message_end", (event, ctx) => {
+	pi.on("message_start", (event) => {
+		if (event.message.role === "assistant") {
+			// Reset timer for each new message — excludes tool execution gaps
+			tpsStartTime = Date.now();
+			tpsTokenCount = 0;
+			tpsStreaming = true;
+		}
+	});
+
+	pi.on("message_end", (event) => {
 		if (event.message.role === "assistant") {
 			const msg = event.message as any;
 			if (msg.usage) {
-				tpsTokenCount = (msg.usage.output || 0) + (msg.usage.input || 0) + (msg.usage.thinking || 0);
+				// Use real usage from the API. Exclude input tokens —
+				// t/s measures generation speed, not total throughput.
+				tpsTokenCount = (msg.usage.output || 0) + (msg.usage.thinking || 0);
 				sessionCost += msg.usage.cost?.total || 0;
+				// Calculate final t/s now — interval won't update while tpsStreaming=false
+				if (tpsStartTime > 0 && tpsTokenCount > 0) {
+					const elapsed = (Date.now() - tpsStartTime) / 1000;
+					if (elapsed > 0) lastTps = Math.round(tpsTokenCount / elapsed);
+				}
 			}
+			// Freeze: interval stops recalculating until next message_start
+			tpsStreaming = false;
 		}
 		activeTui?.requestRender();
 	});
