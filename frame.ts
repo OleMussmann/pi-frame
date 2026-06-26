@@ -378,8 +378,9 @@ export default function (pi: ExtensionAPI) {
 					const mode = getMode();
 					const tl = topLeft();
 					const tr = topRight();
-					const bl = bottomLeft(" · ");
-					const br = bottomRight(" · ");
+					const sep = config.flavor === "box" ? thm.fg(mode.color, " ─ ") : " · ";
+					const bl = bottomLeft(sep);
+					const br = bottomRight(sep);
 
 					return ["", ...(config.flavor === "bar"
 						? renderBar(lines, width, thm, mode.color, tl, tr, bl, br)

@@ -61,7 +61,6 @@ export function renderFrame(
 	bottomRight: string,
 ): string[] {
 	const fc = (t: string) => thm.fg(modeColor, t);
-	const sep = fc(" ── ");
 	const bottomIdx = findBottomBorderIndex(lines);
 
 	lines[0] = frameBorder("╭", "╮", topLeft, topRight, width, fc);
@@ -101,7 +100,6 @@ export function renderBar(
 	bottomRight: string,
 ): string[] {
 	const fc = (t: string) => thm.fg(modeColor, t);
-	const sep = " · ";
 	const bottomIdx = findBottomBorderIndex(lines);
 	const innerW = width - 4;
 
