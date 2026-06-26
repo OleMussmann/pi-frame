@@ -55,6 +55,7 @@ export function renderFrame(
 	width: number,
 	thm: any,
 	modeColor: string,
+	promptChar: string,
 	topLeft: string,
 	topRight: string,
 	bottomLeft: string,
@@ -65,7 +66,7 @@ export function renderFrame(
 
 	lines[0] = frameBorder("╭", "╮", topLeft, topRight, width, fc);
 	for (let i = 1; i < bottomIdx; i++) {
-		const prompt = thm.fg(modeColor, i === 1 ? "> " : "  ");
+		const prompt = thm.fg(modeColor, i === 1 ? promptChar + " " : "  ");
 		lines[i] = `${fc("│")} ${prompt}${lines[i]} ${fc("│")}`;
 	}
 	lines[bottomIdx] = frameBorder("╰", "╯", bottomLeft, bottomRight, width, fc);
@@ -94,6 +95,7 @@ export function renderBar(
 	width: number,
 	thm: any,
 	modeColor: string,
+	promptChar: string,
 	topLeft: string,
 	topRight: string,
 	bottomLeft: string,
@@ -109,7 +111,7 @@ export function renderBar(
 	lines[0] = barRow(` ${tl}${" ".repeat(topGap)}${tr} `, width, fc, thm);
 
 	for (let i = 1; i < bottomIdx; i++) {
-		const prompt = thm.fg(modeColor, i === 1 ? "> " : "  ");
+		const prompt = thm.fg(modeColor, i === 1 ? promptChar + " " : "  ");
 		lines[i] = barRow(` ${prompt}${lines[i]}`, width, fc, thm);
 	}
 

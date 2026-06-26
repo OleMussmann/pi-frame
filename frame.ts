@@ -59,6 +59,28 @@ let tpsTokenCount = 0;
 let tpsStartTime = 0;
 let tpsInterval: ReturnType<typeof setInterval> | undefined;
 
+// Braille spinner
+const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+let spinnerIdx = 0;
+let spinnerInterval: ReturnType<typeof setInterval> | undefined;
+
+function startSpinner(): void {
+	if (spinnerInterval) return;
+	spinnerIdx = 0;
+	spinnerInterval = setInterval(() => {
+		spinnerIdx = (spinnerIdx + 1) % BRAILLE.length;
+		activeTui?.requestRender();
+	}, 100);
+}
+
+function stopSpinner(): void {
+	if (spinnerInterval) {
+		clearInterval(spinnerInterval);
+		spinnerInterval = undefined;
+	}
+	spinnerIdx = 0;
+}
+
 function startTpsTracking(): void {
 	tpsTokenCount = 0;
 	tpsStartTime = Date.now();
@@ -196,11 +218,13 @@ export default function (pi: ExtensionAPI) {
 	// ── Events ────────────────────────────────────────────────────────
 
 	pi.on("agent_start", () => {
+		startSpinner();
 		startTpsTracking();
 		activeTui?.requestRender();
 	});
 
 	pi.on("agent_end", () => {
+		stopSpinner();
 		stopTpsTracking();
 		void doRefreshGit();
 		activeTui?.requestRender();
@@ -376,6 +400,7 @@ export default function (pi: ExtensionAPI) {
 
 					const thm = ctx.ui.theme;
 					const mode = getMode();
+					const promptChar = spinnerInterval ? BRAILLE[spinnerIdx] : ">";
 					const tl = topLeft();
 					const tr = topRight();
 					const sep = config.flavor === "box" ? thm.fg(mode.color, " ─ ") : " · ";
@@ -383,8 +408,8 @@ export default function (pi: ExtensionAPI) {
 					const br = bottomRight(sep);
 
 					return ["", ...(config.flavor === "bar"
-						? renderBar(lines, width, thm, mode.color, tl, tr, bl, br)
-						: renderFrame(lines, width, thm, mode.color, tl, tr, bl, br))];
+						? renderBar(lines, width, thm, mode.color, promptChar, tl, tr, bl, br)
+						: renderFrame(lines, width, thm, mode.color, promptChar, tl, tr, bl, br))];
 				};
 				return base;
 			};
@@ -403,6 +428,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", () => {
+		stopSpinner();
 		stopTpsTracking();
 		activeTui = undefined;
 	});
